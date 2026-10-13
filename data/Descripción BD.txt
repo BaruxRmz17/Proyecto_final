@@ -1,0 +1,5 @@
+El link donde extraje los datos no me dio un contexto de donde se extrajeron los datos o lo que significan, pero el contexto que les propongo para que interpreten los resultados es que esta es una base de datos de donde se midieron distintas muestras de vinos, y en cada una se extrajeron las variables que aparecen en el dataset.
+
+La variable "Customer_Segment" dejémosla como pueblo donde se extrajo el vino.
+La variable "Proline", definámosla como la concentración (en mg/L) de prolina en la muestra de vino.
+El resto de las variables, les recomiendo comentarlo con la IA para definirlas en su trabajo.
