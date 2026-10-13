@@ -1,0 +1,14 @@
+Variable,Asimetria,Shapiro_W,Shapiro_p,Conclusion
+Alcohol,-0.051,0.982,0.02005,No presenta normalidad
+Ash,-0.174,0.984,0.03868,No presenta normalidad
+Ash_Alcanity,0.209,0.99,0.2639,Compatible con normalidad
+Color_Intensity,0.854,0.94,9.229e-7,No presenta normalidad
+Flavanoids,0.025,0.955,1.679e-5,No presenta normalidad
+Hue,0.021,0.981,0.01743,No presenta normalidad
+Magnesium,1.08,0.938,6.346e-7,No presenta normalidad
+Malic_Acid,1.022,0.889,2.946e-10,No presenta normalidad
+Nonflavanoid_Phenols,0.443,0.963,1.055e-4,No presenta normalidad
+OD280,-0.302,0.945,2.316e-6,No presenta normalidad
+Proanthocyanins,0.508,0.981,0.01445,No presenta normalidad
+Proline,0.755,0.931,1.741e-7,No presenta normalidad
+Total_Phenols,0.085,0.977,0.004395,No presenta normalidad

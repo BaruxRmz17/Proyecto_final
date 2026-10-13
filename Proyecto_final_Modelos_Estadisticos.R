@@ -4,7 +4,7 @@
 # 2. Baruc Azael Ramírez Romo
 # Profesor: Axel Torres
 # Institución: EdgeHub | School of Innovation
-# Fecha: Lunes 5 de octubre de 2026
+# Fecha: Lunes 12 de octubre de 2026
 #
 #########################################################################
 # Descripción:
@@ -155,12 +155,324 @@ write_csv(wine, "data/Wine_clean.csv")
 
 #########################################################################
 # 2. Análisis Exploratorio de Datos
-#
-# TODO: Análisis Exploratorio de Datos
-#
-# Insumo: data frame limpio `wine` (13 variables numéricas + factor `Pueblo`)
-# Paleta y guardado de figuras: `colores_pueblo` y `guardar_plot()` (sección 0)
-#
+
+# El análisis se realiza sobre las 13 variables químicas de la base limpia.
+# Se estudian medidas de tendencia central, dispersión, valores atípicos y
+# distribución. Además, se presentan resultados por pueblo para relacionar
+# esta sección con las pruebas y modelos de la sección 3.
+
+# Carpeta para guardar las tablas obtenidas
+dir.create("resultados", showWarnings = FALSE)
+
+# Convertir las variables numéricas a formato largo facilita resumirlas
+# y representarlas con el mismo código.
+datos_largos <- wine %>%
+  pivot_longer(
+    cols = -Pueblo,
+    names_to = "Variable",
+    values_to = "Valor"
+  )
+
+# ---- 2.1 Medidas de tendencia central y dispersión ----
+
+# La media y la mediana representan la tendencia central.
+# La desviación estándar, varianza, IQR y rango representan la dispersión.
+tabla_descriptiva <- datos_largos %>%
+  group_by(Variable) %>%
+  summarise(
+    N = n(),
+    Media = mean(Valor),
+    Mediana = median(Valor),
+    Desviacion_estandar = sd(Valor),
+    Varianza = var(Valor),
+    Minimo = min(Valor),
+    Primer_cuartil = quantile(Valor, 0.25),
+    Tercer_cuartil = quantile(Valor, 0.75),
+    Maximo = max(Valor),
+    IQR = IQR(Valor),
+    Rango = max(Valor) - min(Valor),
+    Coeficiente_variacion = 100 * sd(Valor) / mean(Valor),
+    .groups = "drop"
+  ) %>%
+  arrange(Variable)
+
+# Tabla redondeada para mostrar en consola y utilizar en el reporte
+tabla_descriptiva_reporte <- tabla_descriptiva %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+print(tabla_descriptiva_reporte, n = Inf)
+write_csv(tabla_descriptiva_reporte,
+          "resultados/tabla_descriptiva_general.csv")
+
+# Resumen de todas las variables por pueblo. Permite observar diferencias
+# iniciales antes de aplicar ANOVA, Kruskal-Wallis y los modelos predictivos.
+tabla_por_pueblo <- datos_largos %>%
+  group_by(Pueblo, Variable) %>%
+  summarise(
+    N = n(),
+    Media = mean(Valor),
+    Mediana = median(Valor),
+    Desviacion_estandar = sd(Valor),
+    IQR = IQR(Valor),
+    Minimo = min(Valor),
+    Maximo = max(Valor),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+print(tabla_por_pueblo, n = Inf)
+write_csv(tabla_por_pueblo,
+          "resultados/tabla_descriptiva_por_pueblo.csv")
+
+# ---- 2.2 Detección de valores atípicos ----
+
+# Se usa el criterio de Tukey: un valor es atípico si se encuentra por debajo
+# de Q1 - 1.5*IQR o por encima de Q3 + 1.5*IQR.
+tabla_outliers <- datos_largos %>%
+  group_by(Variable) %>%
+  summarise(
+    Q1 = quantile(Valor, 0.25),
+    Q3 = quantile(Valor, 0.75),
+    IQR = IQR(Valor),
+    Limite_inferior = Q1 - 1.5 * IQR,
+    Limite_superior = Q3 + 1.5 * IQR,
+    Cantidad_outliers = sum(
+      Valor < Limite_inferior | Valor > Limite_superior
+    ),
+    Porcentaje_outliers = 100 * Cantidad_outliers / n(),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  arrange(desc(Cantidad_outliers))
+
+print(tabla_outliers, n = Inf)
+write_csv(tabla_outliers,
+          "resultados/tabla_valores_atipicos.csv")
+
+# Se identifican también las observaciones específicas consideradas atípicas.
+detalle_outliers <- datos_largos %>%
+  group_by(Variable) %>%
+  mutate(
+    Q1 = quantile(Valor, 0.25),
+    Q3 = quantile(Valor, 0.75),
+    RIC = IQR(Valor),
+    Limite_inferior = Q1 - 1.5 * RIC,
+    Limite_superior = Q3 + 1.5 * RIC
+  ) %>%
+  filter(Valor < Limite_inferior | Valor > Limite_superior) %>%
+  select(Pueblo, Variable, Valor, Limite_inferior, Limite_superior) %>%
+  ungroup()
+
+print(detalle_outliers, n = Inf)
+write_csv(detalle_outliers,
+          "resultados/detalle_valores_atipicos.csv")
+
+# Los valores atípicos no se eliminan automáticamente: son mediciones posibles
+# del perfil químico y podrían ayudar a distinguir el pueblo de origen. Solo se
+# eliminarían si se comprobara que provienen de un error de captura o medición.
+
+# ---- 2.3 Distribución de las variables ----
+
+# Shapiro-Wilk complementa la inspección gráfica. H0: la variable presenta
+# una distribución normal. Un p-valor menor a 0.05 sugiere no normalidad.
+tabla_distribucion <- datos_largos %>%
+  group_by(Variable) %>%
+  summarise(
+    Asimetria = mean(
+      ((Valor - mean(Valor)) / sd(Valor))^3
+    ),
+    Shapiro_W = unname(shapiro.test(Valor)$statistic),
+    Shapiro_p = shapiro.test(Valor)$p.value,
+    Conclusion = if_else(
+      Shapiro_p < 0.05,
+      "No presenta normalidad",
+      "Compatible con normalidad"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Asimetria = round(Asimetria, 3),
+    Shapiro_W = round(Shapiro_W, 3),
+    Shapiro_p = signif(Shapiro_p, 4)
+  )
+
+print(tabla_distribucion, n = Inf)
+write_csv(tabla_distribucion,
+          "resultados/tabla_distribuciones.csv")
+
+# Histogramas y curvas de densidad de las 13 variables químicas.
+p_distribuciones <- ggplot(datos_largos, aes(Valor)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 18,
+    fill = "#8fc2e8",
+    color = "white",
+    linewidth = 0.25
+  ) +
+  geom_density(color = "#174f86", linewidth = 0.8) +
+  facet_wrap(~ Variable, scales = "free", ncol = 4) +
+  labs(
+    title = "Distribución de las variables químicas del vino",
+    subtitle = "Histogramas y curvas de densidad",
+    x = "Valor observado",
+    y = "Densidad"
+  ) +
+  theme(
+    axis.text = element_text(size = 7),
+    strip.text = element_text(size = 9, face = "bold")
+  )
+
+p_distribuciones
+guardar_plot(
+  p_distribuciones,
+  "09_distribuciones_variables.png",
+  w = 12,
+  h = 10
+)
+
+# ---- 2.4 Comparación de dispersión y outliers ----
+
+# Como las variables tienen unidades diferentes, se estandarizan para poder
+# compararlas en una misma gráfica de cajas.
+datos_estandarizados <- wine %>%
+  mutate(across(where(is.numeric), ~ as.numeric(scale(.x)))) %>%
+  pivot_longer(
+    cols = -Pueblo,
+    names_to = "Variable",
+    values_to = "Valor_estandarizado"
+  )
+
+p_boxplots <- ggplot(
+  datos_estandarizados,
+  aes(x = reorder(Variable, Valor_estandarizado, FUN = median),
+      y = Valor_estandarizado)
+) +
+  geom_boxplot(
+    fill = "#a9d6f5",
+    color = "#174f86",
+    outlier.color = "#d73027",
+    outlier.size = 1.8
+  ) +
+  coord_flip() +
+  labs(
+    title = "Dispersión y valores atípicos de las variables",
+    subtitle = "Valores estandarizados; los puntos rojos son posibles outliers",
+    x = NULL,
+    y = "Valor estandarizado"
+  )
+
+p_boxplots
+guardar_plot(
+  p_boxplots,
+  "10_boxplots_variables.png",
+  w = 8,
+  h = 7
+)
+
+# ---- 2.5 Correlaciones entre variables ----
+
+# La correlación permite explorar asociaciones lineales y anticipar posibles
+# problemas de multicolinealidad en la regresión del punto 3.
+matriz_correlaciones <- wine %>%
+  select(-Pueblo) %>%
+  cor(use = "complete.obs")
+
+print(round(matriz_correlaciones, 3))
+write_csv(
+  as.data.frame(matriz_correlaciones) %>% rownames_to_column("Variable"),
+  "resultados/matriz_correlaciones.csv"
+)
+
+correlaciones_largas <- as.data.frame(
+  as.table(matriz_correlaciones)
+) %>%
+  rename(
+    Variable_1 = Var1,
+    Variable_2 = Var2,
+    Correlacion = Freq
+  )
+
+p_correlaciones <- ggplot(
+  correlaciones_largas,
+  aes(Variable_1, Variable_2, fill = Correlacion)
+) +
+  geom_tile(color = "white", linewidth = 0.25) +
+  scale_fill_gradient2(
+    low = "#b2182b",
+    mid = "white",
+    high = "#2166ac",
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Correlación"
+  ) +
+  coord_equal() +
+  labs(
+    title = "Matriz de correlaciones del perfil químico",
+    subtitle = "Correlación de Pearson entre las variables numéricas",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8),
+    panel.grid = element_blank()
+  )
+
+p_correlaciones
+guardar_plot(
+  p_correlaciones,
+  "11_matriz_correlaciones.png",
+  w = 9,
+  h = 8
+)
+
+# ---- 2.6 Variables principales para los análisis del punto 3 ----
+
+# Se destacan Proline y cinco variables relacionadas con la diferenciación
+# y predicción de los pueblos: Alcohol, Flavanoids, Color_Intensity, OD280
+# y Total_Phenols.
+variables_clave <- c(
+  "Proline",
+  "Alcohol",
+  "Flavanoids",
+  "Color_Intensity",
+  "OD280",
+  "Total_Phenols"
+)
+
+p_variables_clave <- datos_largos %>%
+  filter(Variable %in% variables_clave) %>%
+  ggplot(aes(Pueblo, Valor, fill = Pueblo)) +
+  geom_boxplot(alpha = 0.75, outlier.alpha = 0.6) +
+  facet_wrap(~ Variable, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = colores_pueblo, guide = "none") +
+  labs(
+    title = "Variables químicas principales por pueblo",
+    subtitle = "Comparación exploratoria previa a las pruebas y modelos",
+    x = NULL,
+    y = "Valor observado"
+  )
+
+p_variables_clave
+guardar_plot(
+  p_variables_clave,
+  "12_variables_clave_por_pueblo.png",
+  w = 10,
+  h = 7
+)
+
+# Interpretación exploratoria:
+# - La media y la mediana permiten reconocer el valor central de cada compuesto.
+# - La desviación estándar y el IQR muestran diferencias importantes de escala
+#   y variabilidad, especialmente en Magnesium y Proline.
+# - El criterio de Tukey identifica posibles valores atípicos en algunas
+#   variables, pero se conservan porque pueden ser observaciones válidas.
+# - Varias distribuciones no son normales, lo cual justifica complementar el
+#   ANOVA con pruebas robustas y no paramétricas en la sección 3.
+# - Proline, Alcohol, Flavanoids, Color_Intensity, OD280 y Total_Phenols muestran
+#   diferencias visibles entre pueblos y son pertinentes para la inferencia,
+#   la regresión y la clasificación realizadas posteriormente.
+
 #########################################################################
 # 3. Inferencia estadística y modelos
 
